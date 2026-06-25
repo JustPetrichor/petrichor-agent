@@ -16,8 +16,11 @@ from app.types import (
     AnalyticsEvent,
     ConversationMessage,
     ModelChunk,
+    ModelTurn,
     ThreadContext,
     ThreadRecord,
+    ToolCallRequest,
+    ToolExecutionResult,
     UsageStats,
 )
 
@@ -130,12 +133,13 @@ class InMemoryAnalytics:
 
 
 class FakeModelClient:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, tool_mode: bool = False) -> None:
         self.fail = fail
+        self.tool_mode = tool_mode
 
     async def stream_chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         metadata: dict[str, Any] | None = None,
     ):
         del metadata
@@ -153,6 +157,45 @@ class FakeModelClient:
             finish_reason="stop",
         )
 
+    async def complete_chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        metadata: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> ModelTurn:
+        del metadata, tool_choice
+        if self.fail:
+            raise RuntimeError("model unavailable")
+
+        if self.tool_mode and tools:
+            tool_messages = [message for message in messages if message["role"] == "tool"]
+            if not tool_messages:
+                return ModelTurn(
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="tool-call-1",
+                            name=tools[0]["function"]["name"],
+                            arguments={"query": "weather in seoul"},
+                        )
+                    ]
+                )
+
+            return ModelTurn(
+                content=f"tool result={tool_messages[-1]['content']}",
+                usage=UsageStats(prompt_tokens=22, completion_tokens=8, total_tokens=30),
+                finish_reason="stop",
+            )
+
+        user_messages = [message["content"] for message in messages if message["role"] == "user"]
+        latest = user_messages[-1] if user_messages else "none"
+        return ModelTurn(
+            content=f"reply={latest}",
+            usage=UsageStats(prompt_tokens=10, completion_tokens=4, total_tokens=14),
+            finish_reason="stop",
+        )
+
     async def summarize_context(
         self,
         existing_summary: str,
@@ -163,16 +206,73 @@ class FakeModelClient:
         return f"summary: {joined}"
 
 
+class EmptyToolRegistry:
+    async def start(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        return []
+
+    def has_tools(self) -> bool:
+        return False
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
+        raise ValueError(f"Unexpected tool call: {name} {arguments}")
+
+
+class FakeToolRegistry(EmptyToolRegistry):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "mcp_fetch_fetch",
+                    "description": "Fetch a page",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                        "required": ["query"],
+                    },
+                },
+            }
+        ]
+
+    def has_tools(self) -> bool:
+        return True
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
+        self.calls.append((name, arguments))
+        return ToolExecutionResult(
+            tool_name=name,
+            original_name="fetch",
+            server_name="fetch",
+            content=f"fetched:{arguments.get('query', '')}",
+        )
+
+
 class FakeRuntime:
-    def __init__(self, settings: Settings, model_client: FakeModelClient) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        model_client: FakeModelClient,
+        tool_registry: EmptyToolRegistry | FakeToolRegistry | None = None,
+    ) -> None:
         self.settings = settings
         self.store = InMemoryThreadStore()
         self.analytics = InMemoryAnalytics()
         self.model_client = model_client
+        self.tools = tool_registry or EmptyToolRegistry()
         self.runner = AgentRunner(
             store=self.store,
             analytics=self.analytics,
             model_client=self.model_client,
+            tool_registry=self.tools,
             settings=settings,
             tracer=get_tracer("tests"),
             langfuse_enabled=False,
@@ -297,3 +397,27 @@ async def test_healthz_reports_dependencies(test_settings: Settings) -> None:
         response = await client.get("/healthz")
         assert response.status_code == 200
         assert response.json()["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_stream_run_executes_tool_roundtrip(test_settings: Settings) -> None:
+    tool_registry = FakeToolRegistry()
+    runtime = FakeRuntime(
+        test_settings,
+        FakeModelClient(tool_mode=True),
+        tool_registry=tool_registry,
+    )
+    app = create_app(runtime=runtime, settings=test_settings)
+
+    async with await _create_client(app) as client:
+        thread = (await client.post("/threads")).json()
+        events = await _collect_stream_events(
+            client,
+            f"/threads/{thread['thread_id']}/runs/stream",
+            {"user_message": "use a tool", "metadata": {"suite": "tools"}},
+        )
+
+    assert tool_registry.calls == [("mcp_fetch_fetch", {"query": "weather in seoul"})]
+    text = "".join(event["delta"] for event in events if event["type"] == "TEXT_MESSAGE_CONTENT")
+    assert "tool result=fetched:weather in seoul" in text
+    assert "STEP_STARTED" in [event["type"] for event in events]

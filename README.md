@@ -67,6 +67,27 @@ uv run uvicorn app.main:app --reload
 http://127.0.0.1:8000
 ```
 
+## MCP Web Browsing
+
+This repo now includes a workspace MCP config at [.mcp.json](/Users/sungjae/Documents/petrichor-agent/.mcp.json) for the official MCP `fetch` server, which lets an agent retrieve and read web page content.
+
+It uses the standard `fetch` setup:
+
+```json
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"]
+    }
+  }
+}
+```
+
+This server fetches a URL and converts page content into markdown for easier LLM consumption. The configuration is based on the official MCP reference server docs: [modelcontextprotocol/servers fetch](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch).
+
+Security note: the official fetch server warns that it can access local or internal IPs, so treat it as a trusted local tool and be careful about what URLs you allow it to fetch.
+
 ## Local Model Endpoint
 
 The harness now defaults to an `Ollama` server running locally on `http://127.0.0.1:11434/v1`.
@@ -148,6 +169,6 @@ Each streamed run emits AG-UI-compatible events with uppercase `type` names:
 ## Notes
 
 - v1 keeps durable thread history plus a rolling summary only.
-- v1 does not include tools, semantic retrieval, or authentication.
+- v1 includes MCP-backed tool use for simple web fetching, but does not include semantic retrieval or authentication.
 - ClickHouse stores structured analytics separately from conversation memory.
 - For native macOS development without Docker, the recommended shortcut is Postgres via Homebrew plus `CLICKHOUSE_ENABLED=false`.

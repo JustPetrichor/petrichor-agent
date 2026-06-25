@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     model_api_base: str = "http://127.0.0.1:11434/v1"
     model_api_key: str = "ollama"
     model_timeout_seconds: int = 120
+    model_tool_calling_enabled: bool = True
 
     postgres_dsn: str = "postgresql://postgres:postgres@127.0.0.1:5432/petrichor"
     postgres_min_pool_size: int = 1
@@ -44,8 +45,18 @@ class Settings(BaseSettings):
     langfuse_tracing_environment: str | None = None
     langfuse_tracing_release: str | None = None
 
+    mcp_enabled: bool = True
+    mcp_config_path: str = ".mcp.json"
+    mcp_tool_call_timeout_seconds: int = 30
+    mcp_max_tool_roundtrips: int = 6
+
     prompt_system_message: str = (
-        "You are a concise, helpful local agent harness running on a developer workstation."
+        "You are a concise, helpful local agent harness running on a developer workstation. "
+        "When the user asks about a specific URL, web page, website, or other live online content, "
+        "you should use the available web-fetching tool instead of claiming you cannot browse. "
+        "If a message includes an http:// or https:// URL, fetch it before answering unless the "
+        "user explicitly asks you not to. Prefer tool-based retrieval for current online "
+        "information."
     )
     thread_memory_window: int = 12
     summary_trigger_messages: int = 12

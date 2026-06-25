@@ -8,7 +8,7 @@ from opentelemetry.trace import Status, StatusCode
 from app.agent.graph import build_agent_graph
 from app.config import Settings
 from app.services.agui import EventPublisher
-from app.types import AnalyticsSink, ModelClient, ThreadRepository
+from app.types import AnalyticsSink, ModelClient, ThreadRepository, ToolRegistry
 
 
 class AgentRunner:
@@ -18,6 +18,7 @@ class AgentRunner:
         store: ThreadRepository,
         analytics: AnalyticsSink,
         model_client: ModelClient,
+        tool_registry: ToolRegistry,
         settings: Settings,
         tracer,
         langfuse_enabled: bool = False,
@@ -26,6 +27,7 @@ class AgentRunner:
         self._store = store
         self._analytics = analytics
         self._model_client = model_client
+        self._tool_registry = tool_registry
         self._settings = settings
         self._tracer = tracer
         self._langfuse_enabled = langfuse_enabled
@@ -65,6 +67,7 @@ class AgentRunner:
                     graph = build_agent_graph(
                         store=self._store,
                         model_client=self._model_client,
+                        tool_registry=self._tool_registry,
                         settings=self._settings,
                         publisher=publisher,
                     )

@@ -57,6 +57,40 @@ class ModelChunk:
 
 
 @dataclass(slots=True)
+class ToolCallRequest:
+    id: str
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ModelTurn:
+    content: str = ""
+    usage: UsageStats | None = None
+    finish_reason: str | None = None
+    tool_calls: list[ToolCallRequest] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ToolDefinition:
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    server_name: str
+    original_name: str
+
+
+@dataclass(slots=True)
+class ToolExecutionResult:
+    tool_name: str
+    original_name: str
+    server_name: str
+    content: str
+    is_error: bool = False
+    structured_content: dict[str, Any] | None = None
+
+
+@dataclass(slots=True)
 class AnalyticsEvent:
     event_type: str
     thread_id: str
@@ -116,12 +150,33 @@ class AnalyticsSink(Protocol):
 class ModelClient(Protocol):
     async def stream_chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         metadata: dict[str, Any] | None = None,
     ): ...
+
+    async def complete_chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        metadata: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> ModelTurn: ...
 
     async def summarize_context(
         self,
         existing_summary: str,
         messages: list[ConversationMessage],
     ) -> str: ...
+
+
+class ToolRegistry(Protocol):
+    async def start(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+    def get_tool_schemas(self) -> list[dict[str, Any]]: ...
+
+    def has_tools(self) -> bool: ...
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolExecutionResult: ...

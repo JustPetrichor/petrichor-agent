@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import litellm
 from litellm import Router
 
 from app.config import Settings
-from app.types import ConversationMessage, ModelChunk, UsageStats
+from app.types import ConversationMessage, ModelChunk, ModelTurn, ToolCallRequest, UsageStats
 
 litellm.drop_params = True
 litellm.suppress_debug_info = True
@@ -33,7 +34,7 @@ class LiteLLMModelClient:
 
     async def stream_chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         metadata: dict[str, Any] | None = None,
     ):
         response = await self._router.acompletion(
@@ -49,11 +50,28 @@ class LiteLLMModelClient:
                 model_chunk = _chunk_from_stream(chunk)
                 if model_chunk is not None:
                     yield model_chunk
-        else:
-            for chunk in response:
-                model_chunk = _chunk_from_stream(chunk)
-                if model_chunk is not None:
-                    yield model_chunk
+
+    async def complete_chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        metadata: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> ModelTurn:
+        response = await self._router.acompletion(
+            model=self._settings.model_alias,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            metadata=metadata,
+        )
+        return ModelTurn(
+            content=_extract_response_content(response).strip(),
+            usage=_extract_usage(response),
+            finish_reason=_extract_finish_reason(response),
+            tool_calls=_extract_tool_calls(response),
+        )
 
     async def summarize_context(
         self,
@@ -127,6 +145,35 @@ def _extract_finish_reason(chunk: Any) -> str | None:
     if not choices:
         return None
     return _field(choices[0], "finish_reason")
+
+
+def _extract_tool_calls(response: Any) -> list[ToolCallRequest]:
+    choices = _field(response, "choices", [])
+    if not choices:
+        return []
+    message = _field(choices[0], "message", {})
+    tool_calls = _field(message, "tool_calls", []) or []
+    parsed: list[ToolCallRequest] = []
+    for tool_call in tool_calls:
+        function = _field(tool_call, "function", {})
+        raw_arguments = _field(function, "arguments", "{}")
+        try:
+            if isinstance(raw_arguments, str):
+                arguments = json.loads(raw_arguments)
+            else:
+                arguments = raw_arguments
+        except Exception:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            arguments = {}
+        parsed.append(
+            ToolCallRequest(
+                id=_field(tool_call, "id", ""),
+                name=_field(function, "name", ""),
+                arguments=arguments,
+            )
+        )
+    return [item for item in parsed if item.id and item.name]
 
 
 def _extract_response_content(response: Any) -> str:

@@ -11,6 +11,7 @@ from app.services.langfuse import (
     create_langfuse_client,
     shutdown_langfuse,
 )
+from app.services.mcp import McpToolRegistry
 from app.services.model import LiteLLMModelClient
 from app.services.runner import AgentRunner
 
@@ -26,6 +27,7 @@ class AppRuntime:
         )
         self.langfuse = None
         self.langfuse_callback_handler = None
+        self.tools = McpToolRegistry(settings)
         self.model_client = None
         self.runner = None
 
@@ -35,6 +37,7 @@ class AppRuntime:
         await self.analytics.connect()
         if self.settings.clickhouse_enabled:
             await self.analytics.init_schema()
+        await self.tools.start()
         configure_langfuse(self.settings)
         self.langfuse = create_langfuse_client(self.settings)
         self.langfuse_callback_handler = create_langfuse_callback_handler(self.settings)
@@ -43,6 +46,7 @@ class AppRuntime:
             store=self.store,
             analytics=self.analytics,
             model_client=self.model_client,
+            tool_registry=self.tools,
             settings=self.settings,
             tracer=get_tracer(),
             langfuse_enabled=self.langfuse is not None,
@@ -51,5 +55,6 @@ class AppRuntime:
 
     async def stop(self) -> None:
         shutdown_langfuse(self.langfuse)
+        await self.tools.close()
         await self.analytics.close()
         await self.store.close()

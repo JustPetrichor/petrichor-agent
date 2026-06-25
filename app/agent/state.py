@@ -9,14 +9,16 @@ class AgentState(TypedDict, total=False):
     user_message: str
     metadata: dict[str, Any]
     summary: str
-    recent_messages: list[dict[str, str]]
+    recent_messages: list[dict[str, Any]]
     message_count: int
-    prompt_messages: list[dict[str, str]]
+    prompt_messages: list[dict[str, Any]]
     assistant_message_id: str
     assistant_response: str
     usage: dict[str, int | None]
     model_latency_ms: float
     trace_id: str
+    pending_tool_calls: list[dict[str, Any]]
+    tool_roundtrip_count: int
 
 
 def serialize_checkpoint(state: AgentState) -> dict[str, Any]:
@@ -31,4 +33,6 @@ def serialize_checkpoint(state: AgentState) -> dict[str, Any]:
         "usage": state.get("usage", {}),
         "model_latency_ms": state.get("model_latency_ms"),
         "trace_id": state.get("trace_id"),
+        "pending_tool_calls": state.get("pending_tool_calls", []),
+        "tool_roundtrip_count": state.get("tool_roundtrip_count", 0),
     }
