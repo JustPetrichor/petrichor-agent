@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agent.state import AgentState, serialize_checkpoint
 from app.config import Settings
+from app.services.agui import EventPublisher
 from app.types import ModelClient, ThreadRepository, UsageStats
 
 
@@ -15,11 +16,11 @@ def build_agent_graph(
     store: ThreadRepository,
     model_client: ModelClient,
     settings: Settings,
+    publisher: EventPublisher,
 ):
     graph = StateGraph(AgentState)
 
     async def load_context(state: AgentState) -> AgentState:
-        publisher = state["publisher"]
         await publisher.step_started("load_context")
         context = await store.get_context(state["thread_id"], settings.thread_memory_window)
         if context is None:
@@ -35,7 +36,6 @@ def build_agent_graph(
         }
 
     async def build_prompt(state: AgentState) -> AgentState:
-        publisher = state["publisher"]
         await publisher.step_started("build_prompt")
         prompt_messages: list[dict[str, str]] = [
             {"role": "system", "content": settings.prompt_system_message}
@@ -52,7 +52,6 @@ def build_agent_graph(
         return {"prompt_messages": prompt_messages}
 
     async def call_model(state: AgentState) -> AgentState:
-        publisher = state["publisher"]
         assistant_message_id = str(uuid.uuid4())
         await publisher.step_started("call_model")
         await publisher.text_message_start(assistant_message_id)
@@ -89,7 +88,6 @@ def build_agent_graph(
         }
 
     async def persist_state(state: AgentState) -> AgentState:
-        publisher = state["publisher"]
         await publisher.step_started("persist_state")
 
         await store.add_message(
@@ -104,7 +102,7 @@ def build_agent_graph(
         total_messages = state.get("message_count", 0) + 1
         all_messages = await store.list_messages(state["thread_id"])
         if total_messages >= settings.summary_trigger_messages:
-            messages_for_summary = all_messages[:-settings.thread_memory_window] or all_messages
+            messages_for_summary = all_messages[: -settings.thread_memory_window] or all_messages
             if messages_for_summary:
                 updated_summary = await model_client.summarize_context(
                     state.get("summary", ""),

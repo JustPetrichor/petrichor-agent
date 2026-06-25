@@ -17,7 +17,6 @@ class AgentState(TypedDict, total=False):
     usage: dict[str, int | None]
     model_latency_ms: float
     trace_id: str
-    publisher: Any
 
 
 def serialize_checkpoint(state: AgentState) -> dict[str, Any]:

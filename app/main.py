@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app.config import Settings
-from app.observability import current_trace_id, instrument_fastapi
+from app.observability import current_trace_id
 from app.runtime import AppRuntime
 from app.schemas import CreateThreadRequest, HealthResponse, StreamRunRequest, ThreadResponse
 from app.services.agui import EventPublisher, encode_sse
@@ -31,7 +31,6 @@ def create_app(runtime: AppRuntime | None = None, settings: Settings | None = No
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
     app.state.runtime = runtime
-    instrument_fastapi(app, settings)
 
     @app.get("/", include_in_schema=False)
     async def demo_client() -> FileResponse:

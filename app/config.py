@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     otel_service_name: str = "petrichor-agent"
     otel_exporter_otlp_endpoint: str = "http://127.0.0.1:4317"
 
+    langfuse_enabled: bool = False
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_base_url: str = "http://127.0.0.1:3000"
+    langfuse_tracing_environment: str | None = None
+    langfuse_tracing_release: str | None = None
+
     prompt_system_message: str = (
         "You are a concise, helpful local agent harness running on a developer workstation."
     )

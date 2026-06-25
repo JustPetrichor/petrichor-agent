@@ -5,6 +5,7 @@ Minimal local-agent harness built with:
 - `FastAPI` for the API surface
 - `LangGraph` for orchestration
 - `LiteLLM` for local OpenAI-compatible model routing
+- `Langfuse` for optional LLM/agent observability
 - `Postgres` for thread memory and checkpoints
 - `ClickHouse` for immutable run analytics
 - `OpenTelemetry` for traces and correlated logs
@@ -79,6 +80,51 @@ Configure these values in `.env` if you want to change the target:
 - `CLICKHOUSE_PASSWORD=petrichor`
 
 LiteLLM routes calls through the logical model alias `agent.default`, so the rest of the app stays provider-agnostic.
+
+## Langfuse
+
+Langfuse is optional and disabled by default.
+
+For a self-hosted local Langfuse stack, start it with:
+
+```bash
+docker compose -f docker-compose.langfuse.yml up -d
+```
+
+Then open:
+
+```text
+http://127.0.0.1:3000
+```
+
+The compose file pre-seeds a local development setup with:
+
+- org id: `petrichor`
+- org: `Petrichor`
+- project id: `petrichor-agent`
+- project: `petrichor-agent`
+- public key: `pk-lf-petrichor-agent-dev`
+- secret key: `sk-lf-petrichor-agent-dev`
+- login: `admin@example.com`
+- password: `changeme123!`
+
+To enable Langfuse in the app, set these values in `.env`:
+
+```bash
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=pk-lf-petrichor-agent-dev
+LANGFUSE_SECRET_KEY=sk-lf-petrichor-agent-dev
+LANGFUSE_BASE_URL=http://127.0.0.1:3000
+LANGFUSE_TRACING_ENVIRONMENT=development
+```
+
+When enabled, the app records:
+
+- LangGraph run and node traces via the Langfuse LangChain callback handler
+- LiteLLM model-call telemetry via LiteLLM's `langfuse_otel` callback
+- shared thread/run metadata propagated onto the Langfuse trace
+
+The existing OpenTelemetry service tracing stays in place alongside Langfuse.
 
 ## Running Tests
 

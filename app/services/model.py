@@ -36,12 +36,12 @@ class LiteLLMModelClient:
         messages: list[dict[str, str]],
         metadata: dict[str, Any] | None = None,
     ):
-        del metadata
         response = await self._router.acompletion(
             model=self._settings.model_alias,
             messages=messages,
             stream=True,
             stream_options={"include_usage": True},
+            metadata=metadata,
         )
 
         if hasattr(response, "__aiter__"):
@@ -49,12 +49,11 @@ class LiteLLMModelClient:
                 model_chunk = _chunk_from_stream(chunk)
                 if model_chunk is not None:
                     yield model_chunk
-            return
-
-        for chunk in response:
-            model_chunk = _chunk_from_stream(chunk)
-            if model_chunk is not None:
-                yield model_chunk
+        else:
+            for chunk in response:
+                model_chunk = _chunk_from_stream(chunk)
+                if model_chunk is not None:
+                    yield model_chunk
 
     async def summarize_context(
         self,
@@ -65,26 +64,29 @@ class LiteLLMModelClient:
             return existing_summary
 
         transcript = "\n".join(f"{message.role}: {message.content}" for message in messages)
+        prompt_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Summarize the conversation for future turns. Preserve user goals, "
+                    "open questions, factual commitments, and unresolved tasks. "
+                    "Return plain text in 6 sentences or fewer."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Existing summary:\n{existing_summary or '(none)'}\n\n"
+                    f"Conversation excerpt:\n{transcript}"
+                ),
+            },
+        ]
+
         response = await self._router.acompletion(
             model=self._settings.model_alias,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Summarize the conversation for future turns. Preserve user goals, "
-                        "open questions, factual commitments, and unresolved tasks. "
-                        "Return plain text in 6 sentences or fewer."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Existing summary:\n{existing_summary or '(none)'}\n\n"
-                        f"Conversation excerpt:\n{transcript}"
-                    ),
-                },
-            ],
+            messages=prompt_messages,
             max_tokens=180,
+            metadata={"task": "rolling-summary", "message_count": len(messages)},
         )
         content = _extract_response_content(response).strip()
         return content or existing_summary

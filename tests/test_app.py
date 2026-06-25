@@ -175,6 +175,8 @@ class FakeRuntime:
             model_client=self.model_client,
             settings=settings,
             tracer=get_tracer("tests"),
+            langfuse_enabled=False,
+            langfuse_callback_handler=None,
         )
 
     async def start(self) -> None:
@@ -263,9 +265,7 @@ async def test_analytics_capture_usage_and_lifecycle(test_settings: Settings) ->
     assert "RUN_FINISHED" in event_types
 
     text_end = next(
-        event
-        for event in runtime.analytics.events
-        if event.event_type == "TEXT_MESSAGE_END"
+        event for event in runtime.analytics.events if event.event_type == "TEXT_MESSAGE_END"
     )
     assert text_end.usage is not None
     assert text_end.usage.total_tokens == 18
