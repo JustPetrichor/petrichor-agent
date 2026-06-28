@@ -1,173 +1,190 @@
 # Petrichor Agent
 
-Minimal local-agent harness built with:
+Petrichor Agent is a minimal local-first agent harness for engineers who want a small, inspectable reference stack instead of a large agent platform.
 
-- `FastAPI` for the API surface
-- `LangGraph` for orchestration
-- `LiteLLM` for local OpenAI-compatible model routing
-- `Langfuse` for optional LLM/agent observability
-- `Postgres` for thread memory and checkpoints
-- `ClickHouse` for immutable run analytics
-- `OpenTelemetry` for traces and correlated logs
-- AG-UI-compatible SSE events for the streaming protocol
+It runs a single conversational agent on top of a local OpenAI-compatible model endpoint, keeps thread memory in Postgres, writes immutable analytics to ClickHouse, streams AG-UI events over SSE, and emits traces through OpenTelemetry with optional Langfuse integration.
 
-## What You Get
+## Why This Exists
 
-- `POST /threads` to create a new thread
-- `GET /threads/{thread_id}` to inspect recent thread state
-- `POST /threads/{thread_id}/runs/stream` to stream AG-UI events over SSE
-- `GET /healthz` to verify the app and its backing services
-- `/` serving a tiny demo client for manual end-to-end testing
+Most agent demos hide the interesting parts behind a polished UI or a managed backend. This project does the opposite.
 
-## Quickstart
+It is meant to show, very plainly:
 
-1. Copy the example env file and adjust the local model endpoint:
+- how an agent loop is orchestrated
+- where memory actually lives
+- how tool calls are bridged into the runtime
+- how traces and product analytics can stay separate
+- how to keep the whole system local and debuggable
 
-```bash
-cp .env.example .env
+## The Shape Of The System
+
+```mermaid
+flowchart LR
+    U["User / Demo Client"] --> API["FastAPI + SSE"]
+    API --> G["LangGraph Agent"]
+    G --> LLM["LiteLLM Route: agent.default"]
+    LLM --> O["Ollama / OpenAI-compatible local model"]
+    G --> MCP["MCP Tool Bridge"]
+    MCP --> FETCH["fetch tool"]
+    G --> PG["Postgres"]
+    API --> CH["ClickHouse"]
+    API --> OTEL["OpenTelemetry"]
+    G --> LF["Langfuse (optional)"]
 ```
 
-2. Start backing services with Docker if it is available:
+## What It Demonstrates
 
-```bash
-docker compose up -d
+- `LangGraph` as the orchestration layer for a compact single-agent workflow
+- `LiteLLM` as the provider abstraction in front of a local model
+- `MCP` as the tool boundary, currently used for simple web fetching
+- `Postgres` for durable thread history, rolling summary, and checkpoints
+- `ClickHouse` for append-only run analytics
+- `OpenTelemetry` for service-level tracing
+- `Langfuse` for AI-oriented trace inspection
+- `AG-UI` event semantics over plain SSE
+
+## Positive Points
+
+- local-first and easy to inspect
+- small enough to understand quickly
+- clear separation between memory, analytics, and tracing
+- explicit orchestration instead of hidden agent behavior
+- tool use is runtime-controlled, not just prompt-described
+- easy to swap model endpoints behind one logical route
+- simple enough to debug end-to-end on a laptop
+
+## End-To-End Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as FastAPI
+    participant G as LangGraph
+    participant P as Postgres
+    participant M as LiteLLM + Model
+    participant T as MCP Tool
+    participant K as ClickHouse
+
+    C->>A: POST /threads/{thread_id}/runs/stream
+    A->>G: start run
+    G->>P: load thread context
+    G->>M: model call
+    alt tool needed
+        M-->>G: tool call
+        G->>T: execute MCP tool
+        T-->>G: tool result
+        G->>M: second model call
+    end
+    G->>P: persist assistant turn + checkpoint
+    A->>K: write analytics events
+    A-->>C: streamed AG-UI events
 ```
 
-If Docker is not available on your Mac, use the native fallback instead:
+## Agent Graph
 
-```bash
-chmod +x scripts/setup_macos_postgres.sh
-./scripts/setup_macos_postgres.sh
+The runtime is intentionally narrow. There is one core graph, and it roughly does this:
+
+1. Load thread context from Postgres.
+2. Build prompt messages from system prompt, rolling summary, and recent turns.
+3. Call the model through LiteLLM.
+4. If the model requests a tool, execute it through the MCP bridge and loop.
+5. Persist the final assistant turn and checkpoint.
+6. Emit analytics and traces around the whole path.
+
+That graph lives around [app/agent/graph.py](/Users/sungjae/Documents/petrichor-agent/app/agent/graph.py), with prompt builders under [app/prompts](/Users/sungjae/Documents/petrichor-agent/app/prompts).
+
+## Memory Model
+
+This project deliberately avoids pretending that every form of memory is the same.
+
+```mermaid
+flowchart TD
+    T["Thread"] --> MSG["Recent raw messages"]
+    T --> SUM["Rolling summary"]
+    T --> CKPT["Graph checkpoints"]
+    RUN["Run lifecycle"] --> EVT["Analytics events"]
+
+    MSG --> PG["Postgres"]
+    SUM --> PG
+    CKPT --> PG
+    EVT --> CH["ClickHouse"]
 ```
 
-Then set these local-only overrides before running the app:
+- `Postgres` holds conversational state.
+- `ClickHouse` holds immutable operational/product records.
+- `OpenTelemetry` and `Langfuse` hold observability data, not business memory.
 
-```bash
-export POSTGRES_DSN="postgresql://$(whoami)@127.0.0.1:5432/petrichor"
-export CLICKHOUSE_ENABLED=false
-export APP_ENABLE_TELEMETRY=false
-```
+That separation is one of the main design choices in the repo.
 
-3. Install Python and dependencies with `uv`:
+## Tooling Story
 
-```bash
-uv python install 3.12
-uv sync --extra dev
-```
+The tool boundary is model-facing but runtime-controlled.
 
-4. Run the app:
+- Tools are discovered from `.mcp.json`.
+- The current example server is the official MCP `fetch` server.
+- The agent exposes MCP tools to the model as OpenAI-style function schemas.
+- Tool execution stays inside the app runtime rather than inside prompt-only conventions.
 
-```bash
-uv run uvicorn app.main:app --reload
-```
+This keeps the tool layer replaceable without changing the rest of the graph.
 
-5. Open the demo client:
+## Observability Story
 
-```text
-http://127.0.0.1:8000
-```
+There are two distinct observability tracks in this project:
 
-## MCP Web Browsing
+- `OpenTelemetry` for service and runtime tracing
+- `Langfuse` for agent and model-centric trace inspection
 
-This repo now includes a workspace MCP config at [.mcp.json](/Users/sungjae/Documents/petrichor-agent/.mcp.json) for the official MCP `fetch` server, which lets an agent retrieve and read web page content.
+This split is intentional. It makes it easier to answer both:
 
-It uses the standard `fetch` setup:
+- "Why was this HTTP or DB path slow?"
+- "Why did the model/tool loop behave that way?"
 
-```json
-{
-  "mcpServers": {
-    "fetch": {
-      "command": "uvx",
-      "args": ["mcp-server-fetch"]
-    }
-  }
-}
-```
+## What Is Intentionally Out Of Scope
 
-This server fetches a URL and converts page content into markdown for easier LLM consumption. The configuration is based on the official MCP reference server docs: [modelcontextprotocol/servers fetch](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch).
+This is not trying to be a complete agent platform.
 
-Security note: the official fetch server warns that it can access local or internal IPs, so treat it as a trusted local tool and be careful about what URLs you allow it to fetch.
+- no multi-agent framework
+- no auth or tenancy
+- no vector store or semantic memory
+- no workflow builder UI
+- no production deployment story
+- no large tool catalog
 
-## Local Model Endpoint
+The value here is in being small enough to read in one sitting.
 
-The harness now defaults to an `Ollama` server running locally on `http://127.0.0.1:11434/v1`.
+## If You’re Looking At This At World’s Fair
 
-Configure these values in `.env` if you want to change the target:
+The interesting question is not "can it chat?"
 
-- `MODEL_API_BASE`, for example `http://127.0.0.1:11434/v1`
-- `MODEL_NAME=qwen3.6:35b-mlx`
-- `MODEL_API_KEY=ollama`
-- `CLICKHOUSE_USERNAME=petrichor`
-- `CLICKHOUSE_PASSWORD=petrichor`
+The interesting questions are:
 
-LiteLLM routes calls through the logical model alias `agent.default`, so the rest of the app stays provider-agnostic.
+- Where does state live after the request ends?
+- How does the model get access to tools?
+- What is traced at the service layer vs the AI layer?
+- What data becomes analytics vs memory?
+- How much agent infrastructure can you keep local before you need a platform?
 
-## Langfuse
+Petrichor Agent is one concrete answer to those questions.
 
-Langfuse is optional and disabled by default.
+## Repo Landmarks
 
-For a self-hosted local Langfuse stack, start it with:
+- [app/main.py](/Users/sungjae/Documents/petrichor-agent/app/main.py): FastAPI surface and SSE endpoint
+- [app/runtime.py](/Users/sungjae/Documents/petrichor-agent/app/runtime.py): app wiring
+- [app/agent/graph.py](/Users/sungjae/Documents/petrichor-agent/app/agent/graph.py): orchestration loop
+- [app/services/model.py](/Users/sungjae/Documents/petrichor-agent/app/services/model.py): LiteLLM-backed model client
+- [app/services/mcp.py](/Users/sungjae/Documents/petrichor-agent/app/services/mcp.py): MCP tool registry and execution
+- [app/db/postgres.py](/Users/sungjae/Documents/petrichor-agent/app/db/postgres.py): thread memory store
+- [app/db/clickhouse.py](/Users/sungjae/Documents/petrichor-agent/app/db/clickhouse.py): analytics sink
+- [app/observability.py](/Users/sungjae/Documents/petrichor-agent/app/observability.py): OpenTelemetry setup
 
-```bash
-docker compose -f docker-compose.langfuse.yml up -d
-```
+## Status
 
-Then open:
+The current version is intentionally minimal but working:
 
-```text
-http://127.0.0.1:3000
-```
-
-The compose file pre-seeds a local development setup with:
-
-- org id: `petrichor`
-- org: `Petrichor`
-- project id: `petrichor-agent`
-- project: `petrichor-agent`
-- public key: `pk-lf-petrichor-agent-dev`
-- secret key: `sk-lf-petrichor-agent-dev`
-- login: `admin@example.com`
-- password: `changeme123!`
-
-To enable Langfuse in the app, set these values in `.env`:
-
-```bash
-LANGFUSE_ENABLED=true
-LANGFUSE_PUBLIC_KEY=pk-lf-petrichor-agent-dev
-LANGFUSE_SECRET_KEY=sk-lf-petrichor-agent-dev
-LANGFUSE_BASE_URL=http://127.0.0.1:3000
-```
-
-When enabled, the app records:
-
-- LangGraph run and node traces via the Langfuse LangChain callback handler
-- LiteLLM model-call telemetry via LiteLLM's `langfuse_otel` callback
-- shared thread/run metadata propagated onto the Langfuse trace
-
-The existing OpenTelemetry service tracing stays in place alongside Langfuse.
-
-## Running Tests
-
-```bash
-uv run pytest
-```
-
-## Event Flow
-
-Each streamed run emits AG-UI-compatible events with uppercase `type` names:
-
-- `RUN_STARTED`
-- `STEP_STARTED`
-- `STEP_FINISHED`
-- `TEXT_MESSAGE_START`
-- `TEXT_MESSAGE_CONTENT`
-- `TEXT_MESSAGE_END`
-- `RUN_FINISHED`
-- `RUN_ERROR`
-
-## Notes
-
-- v1 keeps durable thread history plus a rolling summary only.
-- v1 includes MCP-backed tool use for simple web fetching, but does not include semantic retrieval or authentication.
-- ClickHouse stores structured analytics separately from conversation memory.
-- For native macOS development without Docker, the recommended shortcut is Postgres via Homebrew plus `CLICKHOUSE_ENABLED=false`.
+- single-agent chat loop
+- local model via Ollama-compatible OpenAI endpoint
+- MCP-backed web fetch tool
+- durable thread memory
+- structured run analytics
+- trace instrumentation
+- tiny demo client for end-to-end inspection
