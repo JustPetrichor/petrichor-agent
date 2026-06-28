@@ -7,6 +7,7 @@ import litellm
 from litellm import Router
 
 from app.config import Settings
+from app.prompts import build_summary_prompt_messages
 from app.types import ConversationMessage, ModelChunk, ModelTurn, ToolCallRequest, UsageStats
 
 litellm.drop_params = True
@@ -81,24 +82,7 @@ class LiteLLMModelClient:
         if not messages:
             return existing_summary
 
-        transcript = "\n".join(f"{message.role}: {message.content}" for message in messages)
-        prompt_messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Summarize the conversation for future turns. Preserve user goals, "
-                    "open questions, factual commitments, and unresolved tasks. "
-                    "Return plain text in 6 sentences or fewer."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Existing summary:\n{existing_summary or '(none)'}\n\n"
-                    f"Conversation excerpt:\n{transcript}"
-                ),
-            },
-        ]
+        prompt_messages = build_summary_prompt_messages(existing_summary, messages)
 
         response = await self._router.acompletion(
             model=self._settings.model_alias,

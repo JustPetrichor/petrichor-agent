@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agent.state import AgentState, serialize_checkpoint
 from app.config import Settings
+from app.prompts import build_system_prompt
 from app.services.agui import EventPublisher
 from app.types import (
     ModelClient,
@@ -108,7 +109,7 @@ def build_agent_graph(
     async def build_prompt(state: AgentState) -> AgentState:
         await publisher.step_started("build_prompt")
         prompt_messages: list[dict[str, object]] = [
-            {"role": "system", "content": settings.prompt_system_message}
+            {"role": "system", "content": build_system_prompt()}
         ]
         if state.get("summary"):
             prompt_messages.append(

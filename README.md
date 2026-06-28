@@ -136,7 +136,6 @@ LANGFUSE_ENABLED=true
 LANGFUSE_PUBLIC_KEY=pk-lf-petrichor-agent-dev
 LANGFUSE_SECRET_KEY=sk-lf-petrichor-agent-dev
 LANGFUSE_BASE_URL=http://127.0.0.1:3000
-LANGFUSE_TRACING_ENVIRONMENT=development
 ```
 
 When enabled, the app records:

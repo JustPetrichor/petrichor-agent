@@ -34,7 +34,7 @@
       }
 
       .shell {
-        width: min(1200px, calc(100vw - 32px));
+        width: min(1440px, calc(100vw - 24px));
         margin: 32px auto;
         display: grid;
         gap: 18px;
@@ -69,11 +69,12 @@
 
       .workspace {
         display: grid;
-        grid-template-columns: 1.2fr 0.8fr;
+        grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr);
         overflow: hidden;
       }
 
       .panel {
+        min-width: 0;
         padding: 24px;
       }
 
@@ -101,8 +102,10 @@
       }
 
       .thread-id {
+        max-width: 100%;
         font-family: "IBM Plex Mono", monospace;
         font-size: 0.82rem;
+        overflow-wrap: anywhere;
       }
 
       button,
@@ -141,6 +144,7 @@
 
       .chat-log,
       .events-log {
+        min-width: 0;
         min-height: 420px;
         max-height: 60vh;
         overflow: auto;
@@ -154,6 +158,8 @@
         border-radius: 18px;
         border: 1px solid var(--border);
         white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .bubble.user {
@@ -181,6 +187,7 @@
         border-radius: 18px;
         resize: vertical;
         background: rgba(255, 255, 255, 0.72);
+        overflow-wrap: anywhere;
       }
 
       .composer {
@@ -196,11 +203,15 @@
         padding: 16px;
         font-family: "IBM Plex Mono", monospace;
         font-size: 0.8rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .event-line {
         padding-bottom: 10px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        overflow-wrap: anywhere;
       }
 
       .summary {
@@ -209,6 +220,7 @@
         border: 1px dashed var(--border);
         border-radius: 18px;
         background: rgba(255, 255, 255, 0.6);
+        overflow-wrap: anywhere;
       }
 
       .summary h2,
@@ -219,8 +231,24 @@
       }
 
       @media (max-width: 900px) {
+        .shell {
+          width: min(100vw - 16px, 1440px);
+          margin: 12px auto 24px;
+        }
+
         .workspace {
           grid-template-columns: 1fr;
+        }
+
+        .hero,
+        .panel {
+          padding: 18px;
+        }
+
+        .chat-log,
+        .events-log {
+          min-height: 280px;
+          max-height: none;
         }
 
         .panel + .panel {
